@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Snake LED - Wide ZigZag</title>
+    <link rel="manifest" href="manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #050505;
+            --led-off: #1a1a1a;
+            --red: #ff3333; --green: #33ff33; --blue: #33aaff; --yellow: #ffff33; --white: #ffffff;
+            --glow: 0 0 8px;
+        }
+
+        body { 
+            background: var(--bg-color); color: white; font-family: 'Press Start 2P', cursive; 
+            display: flex; flex-direction: column; align-items: center; 
+            height: 100vh; margin: 0; overflow: hidden; touch-action: manipulation;
+        }
+
+        /* Screen Shake Effect */
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            20% { transform: translate(-3px, 0px) rotate(-1deg); }
+            40% { transform: translate(3px, 2px) rotate(1deg); }
+            60% { transform: translate(-3px, 1px) rotate(-1deg); }
+            80% { transform: translate(3px, -1px) rotate(1deg); }
+            100% { transform: translate(1px, -2px) rotate(0deg); }
+        }
+        .shake { animation: shake 0.3s; }
+
+        .stats-container { 
+            display: flex; flex-direction: column; gap: 5px; padding: 12px;
+            width: 100%; box-sizing: border-box; background: #111; font-size: 0.55rem;
+            border-bottom: 2px solid #333;
+        }
+        .stat-row { display: flex; justify-content: space-between; }
+
+        /* Griglia Allargata: 11 Colonne */
+        #game-area {
+            display: grid;
+            grid-template-columns: repeat(11, 1fr); 
+            grid-gap: 4px;
+            padding: 10px;
+            background: #000;
+            border: 3px solid #222;
+            border-radius: 12px;
+            margin: 5px 0;
+            width: 92vw; /* Quasi tutta la larghezza dello smartphone */
+        }
+
+        .led { 
+            aspect-ratio: 1/1; background: var(--led-off); border-radius: 50%; 
+            transition: background 0.04s, box-shadow 0.04s;
+        }
+        
+        .led.red { background: var(--red); box-shadow: var(--glow) var(--red); }
+        .led.green { background: var(--green); box-shadow: var(--glow) var(--green); }
+        .led.blue { background: var(--blue); box-shadow: var(--glow) var(--blue); }
+        .led.yellow { background: var(--yellow); box-shadow: var(--glow) var(--yellow); }
+        .led.white { background: var(--white); box-shadow: var(--glow) var(--white); }
+        .led.multicolor { animation: rainbow 0.3s infinite linear; }
+        .led.barrier-active { border: 2px solid #ff00ff; box-shadow: 0 0 10px #ff00ff; }
+        .led[class*="-trail"] { opacity: 0.4; }
+
+        @keyframes rainbow {
+            0% { background: red; } 33% { background: yellow; } 66% { background: blue; } 100% { background: green; }
+        }
+
+        /* Pulsantiera Ottimizzata */
+        #controls { 
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; 
+            padding: 8px; width: 95%; max-width: 500px;
+        }
+        button { 
+            padding: 15px 0; border-radius: 10px; border: none; 
+            font-family: 'Press Start 2P', cursive; font-size: 0.5rem; color: black;
+        }
+        .btn-red { background: var(--red); }
+        .btn-green { background: var(--green); }
+        .btn-blue { background: var(--blue); color: white; }
+        .btn-yellow { background: var(--yellow); }
+        
+        .bomb-area { grid-column: span 4; display: flex; flex-direction: column; align-items: center; margin-top: 5px; }
+        .btn-white { background: var(--white); width: 100%; border: 3px solid gold; padding: 12px; }
+        
+        #charge-bar { width: 100%; height: 6px; background: #222; margin-bottom: 4px; border-radius: 3px; overflow: hidden; }
+        #charge-fill { width: 0%; height: 100%; background: white; }
+        #charge-fill.charged { background: #00ffff; }
+    </style>
+</head>
+<body>
+
+    <div class="stats-container">
+        <div class="stat-row">
+            <span>SCORE:<span id="score">0000</span></span>
+            <span>LVL:<span id="level">1</span></span>
+        </div>
+        <div class="stat-row">
+            <span>COMBO:<span id="combo">0</span></span>
+            <span>BOMBS:<span id="bombs">3</span></span>
+        </div>
+    </div>
+
+    <div id="game-area"></div>
+
+    <div id="controls">
+        <button class="btn-red" id="btn-red">R</button>
+        <button class="btn-green" id="btn-green">G</button>
+        <button class="btn-yellow" id="btn-yellow">Y</button>
+        <button class="btn-blue" id="btn-blue">B</button>
+        <div class="bomb-area">
+            <div id="charge-bar"><div id="charge-fill"></div></div>
+            <button class="btn-white" id="bomb-btn">BOMB</button>
+        </div>
+    </div>
+
+    <script>
+        const COLS = 11;
+        const ROWS = 15;
+        const STRIP_LENGTH = COLS * ROWS; 
+        const BASE_POS = 0;
+        const COLORS = ['red', 'green', 'blue', 'yellow'];
+        
+        let score = 0, combo = 0, level = 1, bombs = 3;
+        let snake = [], projectiles = [], isFrozen = false, barrierReady = false;
+        let gameSpeed = 190;
+        let lastUpdateTime = 0;
+
+        const gameArea = document.getElementById('game-area');
+        const chargeFill = document.getElementById('charge-fill');
+
+        function init() {
+            gameArea.innerHTML = '';
+            for(let r = ROWS - 1; r >= 0; r--) {
+                for(let c = 0; c < COLS; c++) {
+                    let div = document.createElement('div');
+                    div.className = 'led';
+                    // Logica zig-zag: riga pari da sx a dx, dispari da dx a sx
+                    let logicalIndex = (r % 2 === 0) ? (r * COLS) + c : (r * COLS) + (COLS - 1 - c);
+                    div.id = 'led-' + logicalIndex;
+                    gameArea.appendChild(div);
+                }
+            }
+            spawnSnake();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function spawnSnake() {
+            snake = [];
+            let len = 15 + (level * 3);
+            for(let i=0; i<len; i++) {
+                if (i > 8 && i % 18 === 0) {
+                    snake.push({ pos: STRIP_LENGTH + i, color: 'off' });
+                    snake.push({ pos: STRIP_LENGTH + i + 1, color: 'multicolor', type: 'powerup' });
+                    snake.push({ pos: STRIP_LENGTH + i + 2, color: 'off' });
+                    i += 2;
+                } else {
+                    snake.push({ pos: STRIP_LENGTH + i, color: COLORS[Math.floor(Math.random()*4)] });
+                }
+            }
+            gameSpeed = Math.max(70, 190 - (level * 10));
+        }
+
+        function shoot(color) {
+            projectiles.push({pos: BASE_POS, color: color, tail: []});
+        }
+
+        function triggerShake() {
+            gameArea.classList.add('shake');
+            setTimeout(() => gameArea.classList.remove('shake'), 300);
+        }
+
+        // Gestione Bombe
+        let chargeTimer, chargeStart = 0;
+        const bombBtn = document.getElementById('bomb-btn');
+
+        const startCharge = (e) => {
+            e.preventDefault(); if (bombs <= 0) return;
+            chargeStart = Date.now();
+            chargeTimer = setInterval(() => {
+                let p = Math.min(((Date.now() - chargeStart) / 1000) * 100, 100);
+                chargeFill.style.width = p + "%";
+                if(p >= 100) chargeFill.classList.add('charged');
+            }, 50);
+        };
+
+        const endCharge = () => {
+            if (!chargeStart) return;
+            clearInterval(chargeTimer);
+            let elapsed = Date.now() - chargeStart;
+            if (elapsed > 1000 && bombs > 0) {
+                projectiles.push({pos: 0, color: 'white', power: bombs * 20, tail: []});
+                bombs = 0;
+                triggerShake(); // La super bomba scuote lo schermo
+            } else if (elapsed > 50 && bombs > 0) {
+                projectiles.push({pos: 0, color: 'white', power: 12, tail: []});
+                bombs--;
+            }
+            chargeStart = 0; chargeFill.style.width = "0%";
+            chargeFill.classList.remove('charged');
+            updateUI();
+        };
+
+        ['red', 'green', 'yellow', 'blue'].forEach(c => {
+            const btn = document.getElementById('btn-' + (c === 'yellow' ? 'yellow' : c));
+            const el = document.getElementById('btn-' + c.substring(0,3)); // Fallback per nomi ID
+            const target = document.querySelector('.btn-' + c);
+            target.addEventListener('mousedown', () => shoot(c));
+            target.addEventListener('touchstart', (e) => { e.preventDefault(); shoot(c); });
+        });
+
+        bombBtn.addEventListener('mousedown', startCharge);
+        bombBtn.addEventListener('touchstart', startCharge);
+        window.addEventListener('mouseup', endCharge);
+        window.addEventListener('touchend', endCharge);
+
+        function update(time) {
+            projectiles.forEach((p, i) => {
+                p.tail = [p.pos - 1];
+                p.pos += 1.5;
+                if(p.pos > STRIP_LENGTH + 2) projectiles.splice(i, 1);
+            });
+
+            if(!isFrozen && time - lastUpdateTime > gameSpeed) {
+                snake.forEach(s => s.pos--);
+                lastUpdateTime = time;
+            }
+
+            if(combo >= 12) barrierReady = true;
+
+            projectiles.forEach((p, pi) => {
+                if(!snake.length) return;
+                let head = snake[0];
+                if(p.pos >= head.pos) {
+                    projectiles.splice(pi, 1);
+                    
+                    if(p.color === 'white') {
+                        let killed = Math.min(p.power, snake.length);
+                        snake.splice(0, killed);
+                        score += killed * 5;
+                        combo = 0; // La bomba resetta la combo
+                        barrierReady = false;
+                    } else if(head.color === 'multicolor') {
+                        let c = p.color;
+                        let killed = snake.filter(s => s.color === c).length;
+                        snake = snake.filter(s => s.color !== c && s.color !== 'multicolor');
+                        score += killed * 100; combo++; freeze();
+                    } else if(p.color === head.color) {
+                        snake.shift(); if(snake[0]?.color === 'off') snake.shift();
+                        score += 10 + (combo * 5); combo++; freeze();
+                    } else {
+                        snake.forEach(s => s.pos -= 4); combo = 0; barrierReady = false;
+                    }
+                    updateUI();
+                }
+            });
+
+            if(snake.length === 0) { level++; bombs++; spawnSnake(); updateUI(); }
+            if(snake.some(s => s.pos <= BASE_POS && s.color !== 'off')) {
+                alert("GAME OVER! SCORE: " + score); location.reload();
+            }
+        }
+
+        function freeze() { isFrozen = true; setTimeout(() => isFrozen = false, 500); }
+
+        function updateUI() {
+            document.getElementById('score').innerText = score.toString().padStart(4, '0');
+            document.getElementById('level').innerText = level;
+            document.getElementById('combo').innerText = combo;
+            document.getElementById('bombs').innerText = bombs;
+        }
+
+        function render() {
+            for(let i=0; i<STRIP_LENGTH; i++) {
+                const led = document.getElementById('led-' + i);
+                if(led) led.className = 'led';
+            }
+            if(barrierReady) document.getElementById('led-' + BASE_POS).classList.add('barrier-active');
+            snake.forEach(s => {
+                const led = document.getElementById('led-' + Math.floor(s.pos));
+                if(led && s.color !== 'off') {
+                    led.classList.add(s.color);
+                    if(s.color === 'multicolor') led.classList.add('multicolor');
+                }
+            });
+            projectiles.forEach(p => {
+                const led = document.getElementById('led-' + Math.floor(p.pos));
+                if(led) led.classList.add(p.color);
+                p.tail.forEach(t => {
+                    const tLed = document.getElementById('led-' + Math.floor(t));
+                    if(tLed) tLed.classList.add(p.color, p.color + '-trail');
+                });
+            });
+        }
+
+        function gameLoop(t) { update(t); render(); requestAnimationFrame(gameLoop); }
+        init();
+    </script>
+</body>
+</html>

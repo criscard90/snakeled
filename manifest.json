@@ -3,7 +3,7 @@
   "name": "SnakeLed",
   "icons": [
     {
-      "src": "icon-512.png",
+      "src": "snakeled.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any maskable"

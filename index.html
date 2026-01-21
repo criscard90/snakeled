@@ -234,6 +234,7 @@
 
             if(!isFrozen && time - lastUpdateTime > gameSpeed) {
                 snake.forEach(s => s.pos--);
+                snake.sort((a, b) => b.pos - a.pos);
                 lastUpdateTime = time;
             }
 

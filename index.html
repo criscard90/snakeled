@@ -69,7 +69,7 @@
         .led.white { background: var(--white); box-shadow: var(--glow) var(--white); }
         .led.multicolor { animation: rainbow 0.3s infinite linear; }
         .led.barrier-active { border: 2px solid #ff00ff; box-shadow: 0 0 10px #ff00ff; }
-        .led[class*="-trail"] { opacity: 0.4; }
+        .led[class*="-trail"] { opacity: 0.6; }
 
         @keyframes rainbow {
             0% { background: red; } 33% { background: yellow; } 66% { background: blue; } 100% { background: green; }
@@ -227,7 +227,7 @@
 
         function update(time) {
             projectiles.forEach((p, i) => {
-                p.tail = [p.pos - 1];
+                p.tail = [p.pos - 1, p.pos - 2, p.pos - 3];
                 p.pos += 1.5;
                 if(p.pos > STRIP_LENGTH + 2) projectiles.splice(i, 1);
             });
@@ -241,8 +241,16 @@
 
             projectiles.forEach((p, pi) => {
                 if(!snake.length) return;
-                let head = snake[0];
-                if(p.pos >= head.pos) {
+                // Find the segment being hit
+                let hitIndex = -1;
+                for(let si = 0; si < snake.length; si++) {
+                    if(p.pos >= snake[si].pos) {
+                        hitIndex = si;
+                        break;
+                    }
+                }
+                if(hitIndex !== -1) {
+                    let hitSegment = snake[hitIndex];
                     projectiles.splice(pi, 1);
                     
                     if(p.color === 'white') {
@@ -251,13 +259,14 @@
                         score += killed * 5;
                         combo = 0; // La bomba resetta la combo
                         barrierReady = false;
-                    } else if(head.color === 'multicolor') {
+                    } else if(hitSegment.color === 'multicolor') {
                         let c = p.color;
                         let killed = snake.filter(s => s.color === c).length;
                         snake = snake.filter(s => s.color !== c && s.color !== 'multicolor');
                         score += killed * 100; combo++; freeze();
-                    } else if(p.color === head.color) {
-                        snake.shift(); if(snake[0]?.color === 'off') snake.shift();
+                    } else if(p.color === hitSegment.color) {
+                        snake.splice(hitIndex, 1);
+                        if(hitIndex < snake.length && snake[hitIndex]?.color === 'off') snake.splice(hitIndex, 1);
                         score += 10 + (combo * 5); combo++; freeze();
                     } else {
                         snake.forEach(s => s.pos -= 4); combo = 0; barrierReady = false;
@@ -266,7 +275,7 @@
                 }
             });
 
-            if(snake.length === 0) { level++; bombs++; spawnSnake(); updateUI(); }
+            if(snake.filter(s => s.color !== 'off').length === 0) { level++; bombs++; spawnSnake(); updateUI(); }
             if(snake.some(s => s.pos <= BASE_POS && s.color !== 'off')) {
                 alert("GAME OVER! SCORE: " + score); location.reload();
             }
